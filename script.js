@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 userAddress = await signer.getAddress();
 
                 // --- Status Network Testnet Configuration ---
-                const statusTestnetChainId = '0x6300005A'; // 1660990954 in hex
+                const statusTestnetChainId = '1660990954';
                 const statusTestnetRpcUrl = 'https://public.sepolia.rpc.status.network';
                 const statusTestnetChainName = 'Status Network Testnet';
                 const statusTestnetSymbol = 'ETH'; // Using ETH as symbol as per details
