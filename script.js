@@ -45,16 +45,20 @@ document.addEventListener('DOMContentLoaded', () => {
                    const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
 
                    if (currentChainId !== statusTestnetChainId) {
-                       statusMessage.textContent = "Switching to Status Network Testnet...";
+                       statusMessage.textContent = "Requesting network switch...";
                        try {
                            // Try switching to the chain
                            await window.ethereum.request({
                                method: 'wallet_switchEthereumChain',
                                params: [{ chainId: statusTestnetChainId }],
                            });
+                           // Wait a tiny bit for MetaMask to potentially update internally after switch
+                           await new Promise(resolve => setTimeout(resolve, 500)); 
+
                        } catch (switchError) {
                            // Error code 4902 indicates the chain has not been added to MetaMask.
                            if (switchError.code === 4902) {
+                               statusMessage.textContent = "Requesting to add network...";
                                try {
                                    // Try adding the chain
                                    await window.ethereum.request({
@@ -71,10 +75,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                             blockExplorerUrls: [statusTestnetExplorerUrl]
                                         }],
                                    });
+                                    // Wait a tiny bit for MetaMask to potentially update internally after add
+                                    await new Promise(resolve => setTimeout(resolve, 500)); 
                                } catch (addError) {
                                    console.error("Failed to add Status Network Testnet:", addError);
                                    statusMessage.textContent = "Failed to add Status Network. Please add it manually.";
-                                   // Clear wallet state if network setup failed
+                                    // Clear wallet state if network setup failed
                                    walletProvider = null;
                                    signer = null;
                                    userAddress = null;
@@ -90,12 +96,33 @@ document.addEventListener('DOMContentLoaded', () => {
                             return;
                            }
                        }
-                   }
-                   // Re-fetch signer if network changed
-                   walletProvider = new ethers.providers.Web3Provider(window.ethereum);
-                   signer = walletProvider.getSigner();
-                   userAddress = await signer.getAddress();
+                       
+                       // IMPORTANT: Re-initialize provider and signer AFTER switch/add attempt
+                       // to ensure ethers.js uses the correct network context.
+                       statusMessage.textContent = "Re-initializing connection...";
+                       walletProvider = new ethers.providers.Web3Provider(window.ethereum);
+                       signer = walletProvider.getSigner();
+                       userAddress = await signer.getAddress(); // Re-fetch address in case it changed?
 
+                       // Re-verify the chain ID AFTER re-initializing
+                       const finalChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                       if (finalChainId !== statusTestnetChainId) {
+                           console.error(`Failed to switch. Expected ${statusTestnetChainId}, but got ${finalChainId}`);
+                           statusMessage.textContent = `Network mismatch. Please manually switch to ${statusTestnetChainName} in MetaMask and refresh.`;
+                           // Clear wallet state as we are on the wrong network
+                           walletProvider = null;
+                           signer = null;
+                           userAddress = null;
+                           return;
+                       }
+                   }
+                   // --- End Status Network Configuration ---
+
+                   // If we reach here, we are connected to the right account and network
+                   statusMessage.textContent = `Connected: ${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)} on ${statusTestnetChainName}. Your turn (X)!`;
+                   connectButton.style.display = 'none';
+                   resetButton.style.display = 'inline-block';
+                   startGame();
                 } catch (networkError) {
                     console.error("Network check/switch failed:", networkError);
                     statusMessage.textContent = "Could not configure network. Please check MetaMask.";
@@ -103,15 +130,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     walletProvider = null;
                     signer = null;
                     userAddress = null;
-                    return;
                 }
 
-                // --- End Status Network Configuration ---
-
-                statusMessage.textContent = `Connected: ${userAddress.substring(0, 6)}...${userAddress.substring(userAddress.length - 4)} on ${statusTestnetChainName}. Your turn (X)!`;
-                connectButton.style.display = 'none';
-                resetButton.style.display = 'inline-block';
-                startGame();
             } catch (error) {
                 console.error("Wallet connection failed:", error);
                 // Check if user rejected the connection request
