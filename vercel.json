@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "public": true,
+  "name": "tic-tac-toe-status-network",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+} 
