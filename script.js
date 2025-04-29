@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 userAddress = await signer.getAddress();
 
                 // --- Status Network Testnet Configuration ---
-                const statusTestnetChainId = '0x6300b5ea'; // 1660990954 in hex
+                const statusTestnetChainId = '0x6300005A'; // 1660990954 in hex (Corrected based on prior user info)
                 const statusTestnetRpcUrl = 'https://public.sepolia.rpc.status.network';
                 const statusTestnetChainName = 'Status Network Testnet';
                 const statusTestnetSymbol = 'ETH'; // Using ETH as symbol as per details
@@ -245,18 +245,60 @@ document.addEventListener('DOMContentLoaded', () => {
     function aiMove() {
         if (!gameActive || currentPlayer !== PLAYER_O) return;
 
-        // Simple AI: Find the first available spot
-        let moveMade = false;
+        let move = -1;
+
+        // 1. Check if AI can win
         for (let i = 0; i < boardState.length; i++) {
             if (boardState[i] === null) {
-                makeMove(i, PLAYER_O);
-                moveMade = true;
-                break;
+                boardState[i] = PLAYER_O; // Try the move
+                if (checkWin(PLAYER_O)) {
+                    move = i;
+                    boardState[i] = null; // Undo the move
+                    break;
+                }
+                boardState[i] = null; // Undo the move
             }
         }
 
-        if (!moveMade) return; // Should not happen if draw check is correct
+        // 2. Check if Player X can win, and block
+        if (move === -1) {
+            for (let i = 0; i < boardState.length; i++) {
+                if (boardState[i] === null) {
+                    boardState[i] = PLAYER_X; // Try the move for player
+                    if (checkWin(PLAYER_X)) {
+                        move = i; // Block this spot
+                        boardState[i] = null; // Undo the move
+                        break;
+                    }
+                    boardState[i] = null; // Undo the move
+                }
+            }
+        }
 
+        // 3. Pick a random available spot
+        if (move === -1) {
+            const availableSpots = [];
+            for (let i = 0; i < boardState.length; i++) {
+                if (boardState[i] === null) {
+                    availableSpots.push(i);
+                }
+            }
+            if (availableSpots.length > 0) {
+                const randomIndex = Math.floor(Math.random() * availableSpots.length);
+                move = availableSpots[randomIndex];
+            }
+        }
+
+        // Make the determined move
+        if (move !== -1) {
+            makeMove(move, PLAYER_O);
+        } else {
+            // Should not happen if draw is checked correctly, but as a fallback:
+            console.error("AI couldn't find a move?");
+            return; 
+        }
+
+        // Check game status after AI move
         if (checkWin(PLAYER_O)) {
             endGame(false, PLAYER_O);
         } else if (boardState.every(cell => cell !== null)) {
@@ -269,31 +311,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Blockchain Interaction Placeholders --- 
     async function handleWinTransaction() {
-        if (!signer) return;
+        if (!signer || !userAddress) return;
         statusMessage.textContent = "You won! Preparing transaction...";
         console.log("Player X won! Initiating transaction signing...");
+
+        // Prepare message
+        const winMessage = `Player ${userAddress} won this TicTacToe round on Status Network!`;
+        let messageHex = "0x"; // Default empty data
         try {
-            // TODO: Define the actual transaction (e.g., small value transfer or contract call)
-            // Example: Sending 0 value transaction to self (very cheap)
+             messageHex = ethers.utils.hexlify(ethers.utils.toUtf8Bytes(winMessage));
+        } catch (e) {
+            console.error("Failed to encode win message:", e);
+            // Proceed without message data if encoding fails
+        }
+
+        try {
             const tx = await signer.sendTransaction({
                 to: userAddress, 
-                value: ethers.utils.parseEther("0") 
+                value: ethers.utils.parseEther("0"),
+                data: messageHex // Add the encoded message here
             });
-            statusMessage.textContent = "Transaction initiated! Waiting for confirmation...";
+            statusMessage.textContent = "Win Tx initiated! Waiting for confirmation..."; // Shortened message
             console.log("Transaction sent:", tx.hash);
             await tx.wait(); // Wait for the transaction to be mined
             console.log("Transaction confirmed:", tx.hash);
-            statusMessage.textContent = `You won! Transaction confirmed: ${tx.hash.substring(0,10)}...`;
+            statusMessage.textContent = `Win Tx confirmed: ${tx.hash.substring(0,10)}...`;
             // Keep game ended message briefly before resetting prompt
             setTimeout(() => {
-                 if (!gameActive) statusMessage.textContent = `Player X Wins! Play again?`;
+                 // Only update if game hasn't restarted
+                 if (!gameActive && statusMessage.textContent.startsWith('Win Tx confirmed')) {
+                    statusMessage.textContent = `Player X Wins! Play again?`;
+                 }
             }, 3000);
         } catch (error) {
             console.error("Transaction failed:", error);
-            statusMessage.textContent = "Transaction failed. See console for details.";
+             let errorMsg = "Win Tx failed. See console."; // Default
+             if (error.code === 'ACTION_REJECTED') {
+                 errorMsg = "Win Tx rejected.";
+             }
+            statusMessage.textContent = errorMsg;
              // Keep game ended message briefly before resetting prompt
             setTimeout(() => {
-                 if (!gameActive) statusMessage.textContent = `Player X Wins! Tx failed. Play again?`;
+                 if (!gameActive && statusMessage.textContent === errorMsg) {
+                    statusMessage.textContent = `Player X Wins! Tx failed. Play again?`;
+                 }
             }, 3000);
         }
     }
@@ -304,10 +365,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Ensure we are still on the correct network before minting
         try {
              const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
-             if (currentChainId !== '0x6300005A') { // Check against hex Chain ID
+             // Use the constant defined at the top for consistency
+             if (currentChainId !== '0x6300005A') { 
                  statusMessage.textContent = "Incorrect network. Please switch to Status Network Testnet.";
-                 // Optionally, re-trigger the network switch logic here or disable minting
-                 alert("Please switch your wallet to the Status Network Testnet to mint the NFT.");
+                 alert(`Please switch your wallet to the Status Network Testnet (Chain ID ${'0x6300005A'}) to mint the NFT.`);
                  return;
              }
         } catch (e) {
@@ -898,9 +959,10 @@ document.addEventListener('DOMContentLoaded', () => {
 ]; 
         const metadataUri = "ipfs://bafkreiekzaqbqlay3fvxk6tftzx55puilo6r5afe3dppkwdunowozd3ro4"; 
 
-        if (nftContractAddress === "PASTE_ADDRESS_HERE" || nftContractABI.length === 0 || metadataUri === "PASTE_METADATA_URI_HERE") {
-            console.warn("NFT Contract Address/ABI/Metadata URI not set correctly in script.js");
-            statusMessage.textContent = "NFT Minting not configured yet. Please check script.js.";
+        // Simplified check now that ABI/Address/URI are hardcoded
+        if (!nftContractAddress || nftContractABI.length === 0 || !metadataUri) {
+            console.error("NFT Contract Address/ABI/Metadata URI not set correctly in script.js");
+            statusMessage.textContent = "NFT Minting configuration error. Check console.";
             return;
         }
 
